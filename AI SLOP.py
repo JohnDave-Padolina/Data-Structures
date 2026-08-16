@@ -5,8 +5,6 @@ CAT_PRIMARY = "Primary Care"                   # text label for this category
 CAT_SURGICAL = "Surgical Specialist"           # text label for this category
 
 
-test
-
 def make_sure_file_exists():
     # Try to open the file to see if it is already there
     try:
