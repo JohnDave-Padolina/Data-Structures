@@ -1,0 +1,23 @@
+Heart Care Clinic | H001 | Cardiology | C001
+Skin Health Clinic | H001 | Dermatology | C002
+Children's Wellness Clinic | H004 | Pediatrics | C003
+Bone and Joint Clinic | H004 | Orthopedics | C004
+Maternal Care Clinic | H001 | Obstetrics and Gynecology | C005
+Heart and Vascular Clinic | H004 | Cardiology | C006
+Pulmonary Care Clinic | H001 | Pulmonology | C007
+Northside Lung Clinic | H004 | Pulmonology | C008
+Mercy Skin Clinic | H004 | Dermatology | C009
+Digestive Health Clinic | H001 | Gastroenterology | C010
+Mercy Digestive Clinic | H004 | Gastroenterology | C011
+Neurology Clinic | H001 | Neurology | C012
+Mercy Neurology Clinic | H004 | Neurology | C013
+J2A Bone and Joint Clinic | H001 | Orthopedics | C014
+J2A Children's Clinic | H001 | Pediatrics | C015
+Hormone and Diabetes Clinic | H001 | Endocrinology | C016
+Mercy Endocrine Clinic | H004 | Endocrinology | C017
+Behavioral Wellness Clinic | H001 | Psychiatry | C018
+Mercy Behavioral Health Clinic | H004 | Psychiatry | C019
+Urinary Health Clinic | H001 | Urology | C020
+Mercy Urology Clinic | H004 | Urology | C021
+Vision Care Clinic | H001 | Ophthalmology | C022
+Mercy Eye Clinic | H004 | Ophthalmology | C023

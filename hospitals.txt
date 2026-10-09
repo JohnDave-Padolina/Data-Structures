@@ -1,0 +1,5 @@
+J2A General Hospital | Hospital | Downtown District | H001
+San Isidro Barangay Health Center | Barangay Health Center | Barangay San Isidro | H002
+Sto. Nino Barangay Health Center | Barangay Health Center | Barangay Sto. Nino | H003
+Mercy Community Hospital | Hospital | North District | H004
+Mabuhay Barangay Health Center | Barangay Health Center | Barangay Mabuhay | H005

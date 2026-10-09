@@ -1,0 +1,23 @@
+Hypertension | Moderate | Medium
+Dengue Fever | Severe | High
+Common Cold | Mild | Low
+Diabetes Mellitus | Moderate | Medium
+Pneumonia | Severe | High
+Type 2 Diabetes | Severe | High
+Common Cold | Mild | Low
+Migraine | Moderate | Low
+Influenza | Moderate | Medium
+Rheumatoid Arthritis | Severe | High
+Acute Bronchitis | Mild | Medium
+Gout | Moderate | Low
+Clinical Depression | Severe | High
+Asthma | Moderate | Medium
+Strep Throat | Mild | Medium
+Generalized Anxiety Disorder | Moderate | Medium
+Iron Deficiency Anemia | Mild | Low
+Chronic Kidney Disease | Severe | High
+Fibromyalgia | Moderate | Low
+Norovirus Gastroenteritis | Mild | Medium
+Hypothyroidism | Mild | Low
+Crohn's Disease | Severe | High
+Kidney Stones | Severe | Low

@@ -1,0 +1,5 @@
+F001 | J2A General Hospital | Hospital | Calamba
+F002 | Riverside Medical Center | Hospital | Santa Rosa
+F003 | Central Community Hospital | Hospital | Los Banos
+F004 | Northside Barangay Health Center | Barangay Health Center | Calamba
+F005 | South District Health Center | Barangay Health Center | Cabuyao

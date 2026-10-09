@@ -1,0 +1,12 @@
+0001 | Vladmir Reyes | 19 | Calamba | 0999999999
+0002 | Abacada | 19 | Cabuyao | 0981685521
+0003 | Maria Santos | 24 | Santa Rosa | 0912345678
+0004 | Jose Dela Cruz | 31 | Binan | 0923456789
+0005 | Ana Garcia | 27 | San Pedro | 0934567890
+0006 | Mark Flores | 42 | Los Bnos | 0945678901
+0007 | Lea Mendoza | 36 | Calamba | 0956789012
+0008 | Carlo Ramos | 22 | Cabuyao | 0967890123
+0009 | Nina Bautista | 29 | Santa Rosa | 0978901234
+0010 | Paolo Aquino | 33 | Binan | 0989012345
+0011 | Ella Castillo | 18 | San Pedro | 0990123456
+0012 | Ryan Torres | 45 | Los Bnos | 0901234567

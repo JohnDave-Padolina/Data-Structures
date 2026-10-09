@@ -1,0 +1,11 @@
+Chest pain or palpitations | Possible heart or circulation condition | Cardiology
+Persistent cough or wheezing | Possible respiratory condition | Pulmonology
+Skin rash, itching, or unusual skin changes | Possible skin condition | Dermatology
+Abdominal pain, heartburn, or persistent nausea | Possible digestive condition | Gastroenterology
+Severe headache, numbness, or recurring dizziness | Possible nervous system condition | Neurology
+Joint pain, back pain, or difficulty moving | Possible bone or joint condition | Orthopedics
+Fever or recurring illness in a child | Possible childhood illness | Pediatrics
+Excessive thirst or unexplained changes in blood sugar | Possible hormone or diabetes-related condition | Endocrinology
+Persistent anxiety, low mood, or distress | Possible mental health concern | Psychiatry
+Painful urination or blood in urine | Possible urinary tract condition | Urology
+Blurred vision or eye pain | Possible eye condition | Ophthalmology
