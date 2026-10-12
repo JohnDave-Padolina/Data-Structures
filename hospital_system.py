@@ -8,6 +8,7 @@ HOSPITAL_FILE = 'hospitals.txt'
 CLINIC_FILE = 'clinics.txt'
 CONSULT_FILE = 'consultations.txt'
 SYMPTOMS_FILE = 'symptoms.txt'
+MEDICAL_ACTION_FILE = 'medical_actions.txt'
 
 SEVERITY_LEVELS = ['Mild', 'Moderate', 'Severe']
 PRIORITY_LEVELS = ['Low', 'Medium', 'High']
@@ -15,6 +16,11 @@ CARE_TYPES = ['Hospital', 'Barangay Health Center']
 FOLLOWUP_STATUSES = ['Required', 'Not Required', 'Completed']
 WELLNESS_STATUSES = ['Improving', 'Stable', 'Critical', 'Recovered']
 CONSULTATION_FIELD_COUNT = 17
+
+# Severity automatically decides the priority level.
+SEVERITY_TO_PRIORITY = {'Mild': 'Low', 'Moderate': 'Medium', 'Severe': 'High'}
+# Lower number = consulted first.
+PRIORITY_RANK = {'High': 0, 'Medium': 1, 'Low': 2}
 
 
 def create_file(filename):
@@ -1302,6 +1308,12 @@ def tx_create_appointment():
     if not doctor:
         return
 
+    # Severity decides the priority automatically:
+    # Severe -> High, Moderate -> Medium, Mild -> Low
+    severity = get_validated_choice("Severity Level", SEVERITY_LEVELS)
+    priority = SEVERITY_TO_PRIORITY[severity]
+    print(f"Priority Level (set automatically): {priority}")
+
     appointment_datetime = get_appointment_datetime(doctor[6])
     consultations = read_consultation_records()
     numeric_ids = [int(record[0]) for record in consultations if record[0].isdigit()]
@@ -1315,8 +1327,8 @@ def tx_create_appointment():
         "N/A",
         doctor[2],
         symptom_category["illness"],
-        "",
-        "",
+        severity,
+        priority,
         "",
         "",
         appointment_datetime,
@@ -1337,6 +1349,8 @@ def tx_create_appointment():
         f"{establishment_type}: {establishment[0]} ({establishment[3]})"
         if establishment else "Establishment: Not assigned"
     )
+    print("Severity:", severity)
+    print("Priority:", priority)
     print("Assigned time slot:", doctor[6])
     print("Appointment:", appointment_datetime)
     print()
@@ -1453,6 +1467,8 @@ def view_transactions():
             )
         print("Possible Illness Category:", record[6] or "Not recorded")
         print("Symptoms:", record[13])
+        print("Severity:", record[7] or "Not recorded")
+        print("Priority:", record[8] or "Not recorded")
         print("Appointment Date and Time:", record[11])
         print("Status:", record[15])
         print("Doctor Findings / Diagnosis:", record[14] or "Not recorded")
@@ -1493,7 +1509,7 @@ class Node:
 
 
 class Queue:
-    """FIFO linked-list queue. FRONT = next patient, REAR = last patient."""
+    """Linked-list PRIORITY queue. FRONT = next patient, REAR = last patient."""
 
     def __init__(self):
         self.front = None
@@ -1512,6 +1528,24 @@ class Queue:
             self.rear = node
         self.size += 1
 
+    def enqueue_priority(self, data):
+        """Sorted insert by data['sort_key']; equal keys stay first-come-first-served."""
+        node = Node(data)
+        if self.front is None:
+            self.front = self.rear = node
+        elif data["sort_key"] < self.front.data["sort_key"]:
+            node.next = self.front
+            self.front = node
+        else:
+            current = self.front
+            while current.next and current.next.data["sort_key"] <= data["sort_key"]:
+                current = current.next
+            node.next = current.next
+            current.next = node
+            if node.next is None:
+                self.rear = node
+        self.size += 1
+
     def dequeue(self):
         if self.is_empty():
             return None
@@ -1524,29 +1558,6 @@ class Queue:
 
     def peek(self):
         return None if self.is_empty() else self.front.data
-
-    # The two methods below are used ONLY by Undo Latest Medical Action.
-    def enqueue_front(self, data):
-        node = Node(data)
-        node.next = self.front
-        self.front = node
-        if self.rear is None:
-            self.rear = node
-        self.size += 1
-
-    def remove_rear(self):
-        if self.is_empty():
-            return None
-        if self.front is self.rear:
-            return self.dequeue()
-        current = self.front
-        while current.next is not self.rear:
-            current = current.next
-        data = self.rear.data
-        current.next = None
-        self.rear = current
-        self.size -= 1
-        return data
 
     def to_list(self):
         """Returns items from FRONT to REAR."""
@@ -1603,7 +1614,6 @@ consultation_queue = Queue()
 medical_action_stack = Stack()
 working_consultations = []   # in-memory copy of consultations.txt
 touched_ids = set()          # consultation IDs changed but not yet saved
-queue_counter = 0
 
 
 def sync_working_consultations():
@@ -1627,9 +1637,56 @@ def find_working_record(consultation_id):
     )
 
 
-def save_transaction_records():
+def refresh_queue():
+    """Rebuilds the priority queue from Scheduled / In Consultation records."""
+    global consultation_queue
+    sync_working_consultations()
+    new_queue = Queue()
+    doctors = read_doctors()
+
+    for record in working_consultations:
+        if record[15] not in ("Scheduled", "In Consultation"):
+            continue
+        if record[8] not in PRIORITY_RANK:
+            continue  # old records with no priority are skipped
+
+        facility = "Not assigned"
+        doctor = next((d for d in doctors if d[1] == record[3]), None)
+        if doctor:
+            _, establishment = get_doctor_establishment(doctor)
+            if establishment:
+                facility = establishment[0]
+
+        in_consult = record[15] == "In Consultation"
+        number = int(record[0]) if record[0].isdigit() else 0
+        new_queue.enqueue_priority({
+            "queue_number": f"Q-{number:03d}",
+            "consultation_id": record[0],
+            "patient_id": record[1],
+            "patient_name": record[2],
+            "illness": record[6] or "Not recorded",
+            "doctor": record[3],
+            "facility": facility,
+            "severity": record[7],
+            "priority": record[8],
+            "status": "In Consultation" if in_consult else "Waiting",
+            # in-progress patient stays first, then High > Medium > Low,
+            # then earliest appointment, then lowest ID
+            "sort_key": (
+                0 if in_consult else 1,
+                PRIORITY_RANK[record[8]],
+                record[11],
+                number
+            )
+        })
+
+    consultation_queue = new_queue
+
+
+def save_transaction_records(quiet=False):
     if not touched_ids:
-        print("There are no unsaved changes.")
+        if not quiet:
+            print("There are no unsaved changes.")
         return
 
     # Merge by ID so appointments added elsewhere are never lost.
@@ -1645,7 +1702,8 @@ def save_transaction_records():
 
     save_consultation_records(file_records)
     touched_ids.clear()
-    print("Transaction records saved to", CONSULT_FILE)
+    if not quiet:
+        print("Transaction records saved to", CONSULT_FILE)
 
 
 def prompt_save_if_unsaved():
@@ -1658,14 +1716,65 @@ def prompt_save_if_unsaved():
             save_transaction_records()
 
 
+def save_action_history():
+    """Writes the whole Medical Action History stack to medical_actions.txt.
+    Lines are written from BOTTOM to TOP so the file reads oldest to newest."""
+    with open(MEDICAL_ACTION_FILE, 'w') as file:
+        for action in reversed(medical_action_stack.to_list()):
+            # 5 info fields, then the 17 fields of the old record (used by Undo)
+            line = [
+                action["timestamp"],
+                action["action"],
+                action["consultation_id"],
+                action["patient_id"],
+                action["message"]
+            ] + action["before"]
+            file.write(' | '.join(line) + '\n')
+
+
+def load_action_history():
+    """Rebuilds the Medical Action History stack from medical_actions.txt."""
+    try:
+        with open(MEDICAL_ACTION_FILE, 'r') as file:
+            for line in file:
+                data = line.rstrip('\r\n').split(' | ')
+                if len(data) != 5 + CONSULTATION_FIELD_COUNT:
+                    continue
+                before = data[5:]
+                medical_action_stack.push({
+                    "timestamp": data[0],
+                    "action": data[1],
+                    "message": data[4],
+                    "consultation_id": data[2],
+                    "patient_id": data[3],
+                    "before": before,
+                    "entry": {
+                        "consultation_id": data[2],
+                        "patient_id": data[3]
+                    }
+                })
+    except FileNotFoundError:
+        create_file(MEDICAL_ACTION_FILE)
+
+
+def persist_changes():
+    """Saves consultations.txt and medical_actions.txt right away."""
+    save_transaction_records(quiet=True)
+    save_action_history()
+    print("Saved to", CONSULT_FILE, "and", MEDICAL_ACTION_FILE)
+
+
 def push_action(action, message, record_before, queue_entry):
     medical_action_stack.push({
+        "timestamp": get_consultation_datetime(),
         "action": action,
         "message": message,
         "consultation_id": queue_entry["consultation_id"],
+        "patient_id": queue_entry["patient_id"],
         "before": record_before,
         "entry": queue_entry
     })
+    persist_changes()
 
 
 def display_queue(title="PATIENT CONSULTATION QUEUE"):
@@ -1681,7 +1790,8 @@ def display_queue(title="PATIENT CONSULTATION QUEUE"):
         print(
             f"{entry['queue_number']} | {entry['patient_id']} | "
             f"{entry['patient_name']} | {entry['illness']} | "
-            f"{entry['priority']} | {entry['status']}"
+            f"Severity: {entry['severity']} | Priority: {entry['priority']} | "
+            f"{entry['status']}"
         )
     print("REAR")
 
@@ -1696,7 +1806,7 @@ def display_action_stack():
 
     print("TOP")
     for action in medical_action_stack.to_list():
-        print(action["message"])
+        print(f"[{action['timestamp']}] {action['message']}")
     print("BOTTOM")
 
 
@@ -1704,105 +1814,13 @@ def display_action_stack():
 #  PATIENT CONSULTATION QUEUING SYSTEM
 # ============================================================
 
-def queue_add_patient():
-    global queue_counter
-
-    sync_working_consultations()
-    queued_ids = {entry["consultation_id"] for entry in consultation_queue.to_list()}
-    eligible = [
-        record for record in working_consultations
-        if record[15] in ("Scheduled", "In Consultation", "Completed")
-        and record[0] not in queued_ids
-    ]
-
-    print()
-    print("===== ADD PATIENT TO CONSULTATION QUEUE =====")
-
-    if not eligible:
-        print("No scheduled consultations are available to add.")
-        return
-
-    for count, record in enumerate(eligible, start=1):
-        print(
-            f"[{count}] ID: {record[0]} | Patient: {record[1]} - {record[2]} | "
-            f"Illness: {record[6] or 'Not recorded'} | Doctor: {record[3]} | "
-            f"Appointment: {record[11]} | Status: {record[15]}"
-        )
-    print("[0] Cancel")
-
-    choice = get_valid_menu_choice(
-        "Select the consultation to add: ",
-        list(range(0, len(eligible) + 1))
-    )
-    if choice == 0:
-        return
-
-    record = eligible[choice - 1]
-
-    requeue = record[15] == "Completed"
-    if requeue:
-        print()
-        print("WARNING: This consultation is already Completed.")
-        print("Re-queuing will clear its previous findings and completion date.")
-        print("They will be replaced when the new consultation is processed.")
-        confirm = get_valid_menu_choice("Continue? [1] Yes [2] No: ", [1, 2])
-        if confirm == 2:
-            print("Cancelled. The patient was not added to the queue.")
-            return
-
-    priority = get_validated_choice("Priority Level", PRIORITY_LEVELS)
-
-    facility = "Not assigned"
-    doctor = next((item for item in read_doctors() if item[1] == record[3]), None)
-    if doctor:
-        _, establishment = get_doctor_establishment(doctor)
-        if establishment:
-            facility = establishment[0]
-
-    before = record[:]
-    record[8] = priority
-    if requeue:
-        record[14] = ""
-        record[15] = "Scheduled"
-        record[16] = ""
-    touched_ids.add(record[0])
-
-    queue_counter += 1
-    entry = {
-        "queue_number": f"Q-{queue_counter:03d}",
-        "consultation_id": record[0],
-        "patient_id": record[1],
-        "patient_name": record[2],
-        "illness": record[6] or "Not recorded",
-        "doctor": record[3],
-        "facility": facility,
-        "priority": priority,
-        "status": "Waiting"
-    }
-    consultation_queue.enqueue(entry)
-    push_action(
-        "ADD",
-        f"Patient {record[1]} added to Consultation Queue.",
-        before,
-        entry
-    )
-
-    print()
-    print("Patient Found:")
-    print("Name:", record[2])
-    print("Illness:", entry["illness"])
-    print("Doctor:", record[3])
-    print("Facility:", facility)
-    print("Priority Level:", priority)
-    print("Patient successfully added to the Consultation Queue.")
-    display_queue()
-
-
 def queue_view():
-    display_queue()
+    refresh_queue()
+    display_queue("PATIENT CONSULTATION QUEUE (PRIORITY ORDER)")
 
 
 def queue_view_next():
+    refresh_queue()
     entry = consultation_queue.peek()
 
     print()
@@ -1816,11 +1834,13 @@ def queue_view_next():
     print("Illness:", entry["illness"])
     print("Doctor:", entry["doctor"])
     print("Facility:", entry["facility"])
+    print("Severity:", entry["severity"])
     print("Priority Level:", entry["priority"])
     print("Status:", entry["status"])
 
 
 def queue_process_next():
+    refresh_queue()
     entry = consultation_queue.peek()
 
     print()
@@ -1844,6 +1864,8 @@ def queue_process_next():
     print("Illness:", entry["illness"])
     print("Doctor:", entry["doctor"])
     print("Facility:", entry["facility"])
+    print("Severity:", entry["severity"])
+    print("Priority Level:", entry["priority"])
     print("Status:", entry["status"])
 
     before = record[:]
@@ -1860,26 +1882,21 @@ def queue_process_next():
 
 
 def queuing_system_menu():
-    sync_working_consultations()
-
     while True:
         print()
         print("===== Patient Consultation Queuing System =====")
-        print("[1] Add Patient to Consultation Queue")
-        print("[2] View Patient Consultation Queue")
-        print("[3] View Next Patient")
-        print("[4] Process Next Patient Consultation")
-        print("[5] Exit")
+        print("[1] View Patient Consultation Queue")
+        print("[2] View Next Patient")
+        print("[3] Process Next Patient Consultation")
+        print("[4] Exit")
 
-        choice = get_valid_menu_choice("Enter an Option: ", [1, 2, 3, 4, 5])
+        choice = get_valid_menu_choice("Enter an Option: ", [1, 2, 3, 4])
 
         if choice == 1:
-            queue_add_patient()
-        elif choice == 2:
             queue_view()
-        elif choice == 3:
+        elif choice == 2:
             queue_view_next()
-        elif choice == 4:
+        elif choice == 3:
             queue_process_next()
         else:
             break
@@ -1891,12 +1908,13 @@ def queuing_system_menu():
 
 def get_current_consultation():
     """Returns (queue entry, record) of the consultation in progress."""
+    refresh_queue()
     entry = consultation_queue.peek()
 
     if entry is None or entry["status"] != "In Consultation":
         print()
         print("No consultation is in progress.")
-        print("Process the next patient first (Queuing System option 4).")
+        print("Process the next patient first (Queuing System option 3).")
         return None, None
 
     record = find_working_record(entry["consultation_id"])
@@ -2005,8 +2023,6 @@ def ma_view_latest():
 
 
 def ma_undo_latest():
-    global queue_counter
-
     latest = medical_action_stack.peek()
 
     print()
@@ -2021,22 +2037,15 @@ def ma_undo_latest():
         return
 
     action = medical_action_stack.pop()
-    kind = action["action"]
-
-    if kind == "ADD":
-        consultation_queue.remove_rear()
-        queue_counter -= 1
-    elif kind == "START":
-        action["entry"]["status"] = "Waiting"
-    elif kind == "COMPLETE":
-        consultation_queue.enqueue_front(action["entry"])
-    # ASSESSMENT and MONITORING only need the record restored (below).
 
     record = find_working_record(action["consultation_id"])
     if record is not None:
         record[:] = action["before"]
         touched_ids.add(record[0])
 
+    persist_changes()
+    # The queue rebuilds itself from the restored records.
+    refresh_queue()
     print("Action undone successfully.")
     display_queue("PATIENT CONSULTATION QUEUE")
     display_action_stack()
@@ -2147,4 +2156,5 @@ def main_menu():
         print()
 
 
+load_action_history()
 main_menu()
