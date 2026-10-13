@@ -2,4 +2,3 @@
 3 | 0005 | Ana Garcia | Gabriel Lim | N/A | Neurology | Possible nervous system condition |  | High | Required | Improving | 2026-10-16 09:00 | Neurology | Severe headache, numbness, or recurring dizziness |  | Scheduled | 
 4 | 0007 | Lea Mendoza | Vincent Dela Cruz | N/A | Endocrinology | Possible hormone or diabetes-related condition |  | Low | Not Required | Stable | 2026-10-16 18:00 | Endocrinology | Excessive thirst or unexplained changes in blood sugar |  | Scheduled | 
 5 | 0008 | Carlo Ramos | Adrian Castro | N/A | Gastroenterology | Possible digestive condition |  | High | Not Required | Recovered | 2026-10-16 18:00 | Gastroenterology | Abdominal pain, heartburn, or persistent nausea |  | Scheduled | 
-6 | 0001 | Vladmir Reyes | JD Padolina | N/A | Cardiology | Possible heart or circulation condition |  |  |  |  | 2026-10-21 07:00 | Cardiology | Chest pain or palpitations |  | Scheduled | 
