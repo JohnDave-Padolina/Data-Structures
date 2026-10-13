@@ -16,6 +16,11 @@ CARE_TYPES = ['Hospital', 'Barangay Health Center']
 FOLLOWUP_STATUSES = ['Required', 'Not Required', 'Completed']
 WELLNESS_STATUSES = ['Improving', 'Stable', 'Critical', 'Recovered']
 CONSULTATION_FIELD_COUNT = 17
+MORNING_SHIFT_START = "07:00"
+EVENING_SHIFT_START = "15:30"
+MORNING_APPOINTMENT_SLOTS = ("07:00", "08:30", "10:00", "12:30", "14:00")
+EVENING_APPOINTMENT_SLOTS = ("15:30", "17:00", "18:30", "21:00", "22:30")
+APPOINTMENT_SLOT_DURATION = timedelta(minutes=90)
 
 # Severity automatically decides the priority level.
 SEVERITY_TO_PRIORITY = {'Mild': 'Low', 'Moderate': 'Medium', 'Severe': 'High'}
@@ -120,7 +125,11 @@ def read_doctors():
                 doctor[2].casefold() == specialization.casefold()
                 for doctor in doctors
             )
-            slot = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+            slot = (
+                MORNING_SHIFT_START
+                if same_specialty_count % 2 == 0
+                else EVENING_SHIFT_START
+            )
             if clinic:
                 record.extend(["Clinic", clinic[3], slot])
             elif hospitals:
@@ -139,6 +148,10 @@ def read_doctors():
             else:
                 continue
         if len(record) == 7:
+            if record[6] == "09:00":
+                record[6] = MORNING_SHIFT_START
+            elif record[6] == "18:00":
+                record[6] = EVENING_SHIFT_START
             doctors.append(record)
 
     return doctors
@@ -213,15 +226,47 @@ def get_record_text(prompt, required=True):
             return value
 
 
-def get_appointment_datetime(time_slot="09:00"):
-    appointment_day = datetime.now().date() + timedelta(days=7)
-    hour, minute = (int(part) for part in time_slot.split(':'))
-    return datetime.combine(
-        appointment_day,
-        datetime.min.time().replace(hour=hour, minute=minute)
-    ).strftime(
-        '%Y-%m-%d %H:%M'
-    )
+def get_doctor_appointment_slots(doctor):
+    if doctor[6] in (MORNING_SHIFT_START, "09:00"):
+        return MORNING_APPOINTMENT_SLOTS
+    if doctor[6] in (EVENING_SHIFT_START, "18:00"):
+        return EVENING_APPOINTMENT_SLOTS
+    raise ValueError(f"Unsupported shift start time for doctor {doctor[1]}: {doctor[6]}")
+
+
+def get_appointment_datetime(doctor, consultations, priority):
+    if priority == "High":
+        return (
+            datetime.now() + timedelta(minutes=15)
+        ).strftime('%Y-%m-%d %H:%M')
+
+    booked_appointments = {}
+    for consultation in consultations:
+        if consultation[3] != doctor[1]:
+            continue
+
+        booked_start = datetime.strptime(consultation[11], '%Y-%m-%d %H:%M')
+        booked_appointments.setdefault(booked_start.date(), []).append(booked_start)
+
+    appointment_day = datetime.now().date() + timedelta(days=1)
+    appointment_slots = get_doctor_appointment_slots(doctor)
+
+    while True:
+        for time_slot in appointment_slots:
+            slot_start = datetime.combine(
+                appointment_day,
+                datetime.strptime(time_slot, '%H:%M').time()
+            )
+            slot_end = slot_start + APPOINTMENT_SLOT_DURATION
+            overlaps_existing_appointment = any(
+                slot_start < booked_start + APPOINTMENT_SLOT_DURATION
+                and booked_start < slot_end
+                for booked_start in booked_appointments.get(appointment_day, [])
+            )
+            if not overlaps_existing_appointment:
+                return slot_start.strftime('%Y-%m-%d %H:%M')
+
+        appointment_day += timedelta(days=1)
 
 
 def get_consultation_datetime():
@@ -547,7 +592,11 @@ def add_doctor():
         doctor[2].casefold() == specialization.casefold()
         for doctor in doctors
     )
-    shift = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+    shift = (
+        MORNING_SHIFT_START
+        if same_specialty_count % 2 == 0
+        else EVENING_SHIFT_START
+    )
     doctor = [
         doctor_id,
         name,
@@ -582,7 +631,7 @@ def view_doctors():
             f"[{count}] Doctor ID: {doctor[0]} | Doctor Name: {doctor[1]} | "
             f"Specialization: {doctor[2]} | Contact Number: {doctor[3]} | "
             f"Establishment Type: {establishment_type} | "
-            f"Establishment ID: {doctor[5]} | Time Slot: {doctor[6]} | "
+            f"Establishment ID: {doctor[5]} | Shift starts at: {doctor[6]} | "
             f"Establishment: {establishment[0] if establishment else 'Not assigned'}"
         )
 
@@ -645,7 +694,11 @@ def update_doctor():
                 item is not doctor and item[2].casefold() == new_specialization.casefold()
                 for item in doctors
             )
-            doctor[6] = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+            doctor[6] = (
+                MORNING_SHIFT_START
+                if same_specialty_count % 2 == 0
+                else EVENING_SHIFT_START
+            )
         else:
             print("The current establishment cannot serve that specialization; specialization unchanged.")
     if new_contact != '':
@@ -1272,7 +1325,11 @@ def tx_select_doctor(recommended_specialization):
     print("Assigned Doctor:", selected[1])
     print("Specialization:", selected[2])
     establishment_type, establishment = get_doctor_establishment(selected)
-    print("Assigned time:", selected[6])
+    print("Shift starts at:", selected[6])
+    print(
+        "Appointment slots:",
+        ", ".join(get_doctor_appointment_slots(selected))
+    )
     print(
         f"{establishment_type}: {establishment[0]} ({establishment[3]})"
         if establishment else "Establishment: Not assigned"
@@ -1314,8 +1371,12 @@ def tx_create_appointment():
     priority = SEVERITY_TO_PRIORITY[severity]
     print(f"Priority Level (set automatically): {priority}")
 
-    appointment_datetime = get_appointment_datetime(doctor[6])
     consultations = read_consultation_records()
+    appointment_datetime = get_appointment_datetime(
+        doctor,
+        consultations,
+        priority
+    )
     numeric_ids = [int(record[0]) for record in consultations if record[0].isdigit()]
     consultation_id = str(max(numeric_ids, default=0) + 1)
 
@@ -1351,7 +1412,14 @@ def tx_create_appointment():
     )
     print("Severity:", severity)
     print("Priority:", priority)
-    print("Assigned time slot:", doctor[6])
+    if priority == "High":
+        print("Urgent appointment scheduled outside regular time slots.")
+    else:
+        print(
+            "Assigned time slot:",
+            datetime.strptime(appointment_datetime, '%Y-%m-%d %H:%M').strftime('%H:%M'),
+            "(90 minutes)"
+        )
     print("Appointment:", appointment_datetime)
     print()
 
