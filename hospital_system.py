@@ -7,6 +7,8 @@ ILLNESS_FILE = 'illnesses.txt'
 HOSPITAL_FILE = 'hospitals.txt'
 CLINIC_FILE = 'clinics.txt'
 CONSULT_FILE = 'consultations.txt'
+CONSULTATION_HISTORY_FILE = 'consultation_history.txt'
+CONSULTATION_QUEUE_FILE = 'consultation_queue.txt'
 SYMPTOMS_FILE = 'symptoms.txt'
 
 SEVERITY_LEVELS = ['Mild', 'Moderate', 'Severe']
@@ -192,8 +194,75 @@ def read_consultation_records():
     return records
 
 
+def archive_completed_consultations(records):
+    history_records = read_raw_records(CONSULTATION_HISTORY_FILE)
+    archived_consultations = {
+        (record[0], record[16])
+        for record in history_records
+        if len(record) == CONSULTATION_FIELD_COUNT
+    }
+    new_history_records = []
+    for record in records:
+        if (
+            len(record) != CONSULTATION_FIELD_COUNT
+            or record[15] != "Completed"
+        ):
+            continue
+
+        consultation_key = (record[0], record[16])
+        if consultation_key not in archived_consultations:
+            new_history_records.append(record[:])
+            archived_consultations.add(consultation_key)
+    if new_history_records:
+        save_records(
+            CONSULTATION_HISTORY_FILE,
+            history_records + new_history_records
+        )
+
+
+def read_consultation_history_records():
+    consultations = read_consultation_records()
+    archive_completed_consultations(consultations)
+    return [
+        record
+        for record in read_raw_records(CONSULTATION_HISTORY_FILE)
+        if len(record) == CONSULTATION_FIELD_COUNT
+    ]
+
+
+def get_active_appointment_queue(records):
+    return sorted(
+        (
+            record for record in records
+            if record[15] in ("Scheduled", "In Consultation")
+        ),
+        key=lambda record: datetime.strptime(record[11], '%Y-%m-%d %H:%M')
+    )
+
+
+def save_consultation_queue(records):
+    queue_records = get_active_appointment_queue(records)
+    save_records(
+        CONSULTATION_QUEUE_FILE,
+        [
+            [
+                record[0],
+                record[1],
+                record[2],
+                record[3],
+                record[11],
+                record[7],
+                record[15]
+            ]
+            for record in queue_records
+        ]
+    )
+
+
 def save_consultation_records(records):
+    archive_completed_consultations(records)
     save_records(CONSULT_FILE, records)
+    save_consultation_queue(records)
 
 
 def get_record_text(prompt, required=True):
@@ -1133,7 +1202,7 @@ def illness_crud():
 
 
 def view_patient_history():
-    consultations = read_consultation_records()
+    consultations = read_consultation_history_records()
 
     print()
     print("===== PATIENT CONSULTATION HISTORY =====")
@@ -1143,9 +1212,18 @@ def view_patient_history():
 
 
 def print_consultation_history(patient_id, consultations):
-    matches = [record for record in consultations if record[1] == patient_id]
+    matches = [
+        record for record in consultations
+        if len(record) == CONSULTATION_FIELD_COUNT and record[1] == patient_id
+    ]
+    legacy_matches = [
+        record for record in consultations
+        if len(record) != CONSULTATION_FIELD_COUNT
+        and len(record) > 2
+        and record[2] == patient_id
+    ]
 
-    if not matches:
+    if not matches and not legacy_matches:
         print("No consultation history found for this patient.")
         print()
         return
@@ -1181,6 +1259,10 @@ def print_consultation_history(patient_id, consultations):
         print("Consultation Date and Time:", record[16] or "Not recorded")
         print()
 
+    for count, record in enumerate(legacy_matches, start=len(matches) + 1):
+        print(f"===== LEGACY VISIT {count} =====")
+        print("Archived record:", " | ".join(record))
+        print()
 
 def file_maintenance():
     while True:
@@ -1333,7 +1415,12 @@ def tx_create_appointment():
         return
 
     appointment_datetime = get_appointment_datetime(appointment_slot[1])
-    numeric_ids = [int(record[0]) for record in consultations if record[0].isdigit()]
+    history_records = read_raw_records(CONSULTATION_HISTORY_FILE)
+    numeric_ids = [
+        int(record[0])
+        for record in consultations + history_records
+        if record[0].isdigit()
+    ]
     consultation_id = str(max(numeric_ids, default=0) + 1)
 
     record = [
@@ -1374,39 +1461,7 @@ def tx_create_appointment():
     print()
 
 
-def tx_update_consultation():
-    consultations = read_consultation_records()
-
-    print()
-    print("===== CONSULTATION UPDATE =====")
-
-    if not consultations:
-        print("No appointment records are available to update.")
-        print()
-        return
-
-    for count, record in enumerate(consultations, start=1):
-        doctor = next(
-            (item for item in read_doctors() if item[1] == record[3]),
-            None
-        )
-        establishment_type, establishment = (
-            get_doctor_establishment(doctor) if doctor else ("Establishment", None)
-        )
-        print(
-            f"[{count}] ID: {record[0]} | Patient: {record[2]} | "
-            f"Doctor: {record[3]} ({record[12]}) | "
-            f"Appointment: {record[11]} | Status: {record[15]} | "
-            f"{establishment_type}: "
-            f"{establishment[0] if establishment else 'Not assigned'}"
-        )
-
-    choice = get_valid_menu_choice(
-        "Select the appointment to update: ",
-        list(range(1, len(consultations) + 1))
-    )
-    record = consultations[choice - 1]
-
+def complete_consultation_update(record, consultations):
     patients = read_records(PATIENTS_FILE, 5)
     patient = next((item for item in patients if item[0] == record[1]), None)
     if patient:
@@ -1426,11 +1481,66 @@ def tx_update_consultation():
     record[9] = get_validated_choice("Follow-up Status", FOLLOWUP_STATUSES)
     record[10] = get_validated_choice("Wellness Status", WELLNESS_STATUSES)
     record[15] = "Completed"
+    if record[10] == "Recovered":
+        archive_completed_consultations([record])
+        consultations.remove(record)
     save_consultation_records(consultations)
 
     print("Consultation updated in", CONSULT_FILE)
     print("Appointment ID:", record[0])
+    if record[10] == "Recovered":
+        print("Recovered patient removed from the active consultation records.")
     print()
+
+
+def tx_update_consultation():
+    print()
+    print("===== CONSULTATION UPDATE =====")
+
+    while True:
+        consultations = read_consultation_records()
+        appointment_queue = get_active_appointment_queue(consultations)
+        save_consultation_queue(consultations)
+
+        print()
+        print("CONSULTATION QUEUE (earliest appointment first)")
+        if appointment_queue:
+            for count, record in enumerate(appointment_queue, start=1):
+                print(
+                    f"{count}. ID: {record[0]} | Patient: {record[2]} | "
+                    f"Doctor: {record[3]} | Severity: {record[7] or 'Not recorded'} | "
+                    f"Appointment: {record[11]} | Status: {record[15]}"
+                )
+        else:
+            print("No active appointments are waiting to be processed.")
+
+        print("[1] Process next patient")
+        print("[2] Process emergency (high severity)")
+        print("[3] Return to Transactions")
+        choice = get_valid_menu_choice("Enter an Option: ", [1, 2, 3])
+
+        if choice == 3:
+            return
+        if not appointment_queue:
+            continue
+
+        if choice == 1:
+            record = appointment_queue[0]
+        else:
+            emergency_patients = [
+                item for item in appointment_queue
+                if item[7] == "Severe" or item[8] == "High"
+            ]
+            if not emergency_patients:
+                print("There are no active high-severity appointments.")
+                continue
+            record = emergency_patients[0]
+            print(
+                "Emergency priority: processing high-severity patient",
+                record[2]
+            )
+
+        complete_consultation_update(record, consultations)
 
 
 def transaction_menu():
@@ -1502,6 +1612,8 @@ def system_statistics():
     clinics = read_clinics()
     illnesses = read_records(ILLNESS_FILE, 3)
     consultations = read_consultation_records()
+    active_appointments = get_active_appointment_queue(consultations)
+    save_consultation_queue(consultations)
 
     print()
     print("===== SYSTEM STATISTICS =====")
@@ -1511,6 +1623,30 @@ def system_statistics():
     print("Total Specialty Clinics:", len(clinics))
     print("Total Illness Records:", len(illnesses))
     print("Total Appointment / Consultation Records:", len(consultations))
+    print("Doctors with Active Consultation Schedules:")
+    doctors_with_active_appointments = [
+        (
+            doctor,
+            [
+                record for record in active_appointments
+                if record[3] == doctor[1]
+            ]
+        )
+        for doctor in doctors
+    ]
+    doctors_with_active_appointments = [
+        item for item in doctors_with_active_appointments if item[1]
+    ]
+    if not doctors_with_active_appointments:
+        print("No doctors currently have active appointments.")
+    else:
+        for doctor, doctor_appointments in doctors_with_active_appointments:
+            print(f"- {doctor[1]} ({doctor[2]})")
+            for appointment in doctor_appointments:
+                print(
+                    f"  {appointment[11]} | Patient: {appointment[2]} | "
+                    f"Status: {appointment[15]}"
+                )
     print()
 
 
@@ -1660,6 +1796,8 @@ def find_working_record(consultation_id):
 
 
 def save_transaction_records():
+    global working_consultations
+
     if not touched_ids:
         print("There are no unsaved changes.")
         return
@@ -1671,11 +1809,27 @@ def save_transaction_records():
         for record in working_consultations
         if record[0] in touched_ids
     }
-    for index, record in enumerate(file_records):
-        if record[0] in updates:
-            file_records[index] = updates[record[0]]
+    archive_completed_consultations(list(updates.values()))
+    saved_records = []
+    for record in file_records:
+        updated_record = updates.get(record[0])
+        if updated_record is None:
+            saved_records.append(record)
+        elif not (
+            updated_record[15] == "Completed"
+            and updated_record[10] == "Recovered"
+        ):
+            saved_records.append(updated_record)
 
-    save_consultation_records(file_records)
+    save_consultation_records(saved_records)
+    working_consultations = [
+        record for record in working_consultations
+        if not (
+            record[0] in touched_ids
+            and record[15] == "Completed"
+            and record[10] == "Recovered"
+        )
+    ]
     touched_ids.clear()
     print("Transaction records saved to", CONSULT_FILE)
 
@@ -2065,6 +2219,9 @@ def ma_undo_latest():
     # ASSESSMENT and MONITORING only need the record restored (below).
 
     record = find_working_record(action["consultation_id"])
+    if record is None and kind == "COMPLETE":
+        record = action["before"][:]
+        working_consultations.append(record)
     if record is not None:
         record[:] = action["before"]
         touched_ids.add(record[0])
@@ -2086,7 +2243,10 @@ def ma_view_profile_and_history():
         return
 
     tx_view_patient_profile(patient)
-    print_consultation_history(patient[0], working_consultations)
+    print_consultation_history(
+        patient[0],
+        read_consultation_history_records()
+    )
 
 
 def medical_action_history_menu():
