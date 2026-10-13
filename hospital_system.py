@@ -15,6 +15,13 @@ CARE_TYPES = ['Hospital', 'Barangay Health Center']
 FOLLOWUP_STATUSES = ['Required', 'Not Required', 'Completed']
 WELLNESS_STATUSES = ['Improving', 'Stable', 'Critical', 'Recovered']
 CONSULTATION_FIELD_COUNT = 17
+APPOINTMENT_SLOTS = [
+    (1, "07:00", "08:20"),
+    (2, "08:20", "09:40"),
+    (3, "09:40", "11:00"),
+    (4, "12:30", "13:40"),
+    (5, "13:40", "14:20")
+]
 
 
 def create_file(filename):
@@ -110,11 +117,7 @@ def read_doctors():
                 (item for item in clinics if item[2].casefold() == specialization.casefold()),
                 None
             )
-            same_specialty_count = sum(
-                doctor[2].casefold() == specialization.casefold()
-                for doctor in doctors
-            )
-            slot = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+            slot = "07:00"
             if clinic:
                 record.extend(["Clinic", clinic[3], slot])
             elif hospitals:
@@ -207,7 +210,7 @@ def get_record_text(prompt, required=True):
             return value
 
 
-def get_appointment_datetime(time_slot="09:00"):
+def get_appointment_datetime(time_slot="07:00"):
     appointment_day = datetime.now().date() + timedelta(days=7)
     hour, minute = (int(part) for part in time_slot.split(':'))
     return datetime.combine(
@@ -537,11 +540,7 @@ def add_doctor():
     )
     establishment = establishments[establishment_choice - 1]
 
-    same_specialty_count = sum(
-        doctor[2].casefold() == specialization.casefold()
-        for doctor in doctors
-    )
-    shift = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+    shift = "07:00"
     doctor = [
         doctor_id,
         name,
@@ -576,7 +575,7 @@ def view_doctors():
             f"[{count}] Doctor ID: {doctor[0]} | Doctor Name: {doctor[1]} | "
             f"Specialization: {doctor[2]} | Contact Number: {doctor[3]} | "
             f"Establishment Type: {establishment_type} | "
-            f"Establishment ID: {doctor[5]} | Time Slot: {doctor[6]} | "
+            f"Establishment ID: {doctor[5]} | Consultation Slots: 5 daily | "
             f"Establishment: {establishment[0] if establishment else 'Not assigned'}"
         )
 
@@ -635,11 +634,7 @@ def update_doctor():
         )
         if assigned_establishment and clinic_specialization_matches:
             doctor[2] = new_specialization
-            same_specialty_count = sum(
-                item is not doctor and item[2].casefold() == new_specialization.casefold()
-                for item in doctors
-            )
-            doctor[6] = "09:00" if same_specialty_count % 2 == 0 else "18:00"
+            doctor[6] = "07:00"
         else:
             print("The current establishment cannot serve that specialization; specialization unchanged.")
     if new_contact != '':
@@ -1254,7 +1249,7 @@ def tx_select_doctor(recommended_specialization):
         return None
 
     for count, doctor in enumerate(matching_doctors, start=1):
-        print(f"[{count}] {doctor[1]} - {doctor[2]}")
+        print(f"[{count}] {doctor[1]} - {doctor[2]} (5 daily slots)")
 
     choice = get_valid_menu_choice(
         "Enter an Option: ",
@@ -1266,7 +1261,7 @@ def tx_select_doctor(recommended_specialization):
     print("Assigned Doctor:", selected[1])
     print("Specialization:", selected[2])
     establishment_type, establishment = get_doctor_establishment(selected)
-    print("Assigned time:", selected[6])
+    print("Daily consultation slots:", len(APPOINTMENT_SLOTS))
     print(
         f"{establishment_type}: {establishment[0]} ({establishment[3]})"
         if establishment else "Establishment: Not assigned"
@@ -1279,6 +1274,36 @@ def tx_select_doctor(recommended_specialization):
     print()
 
     return selected
+
+
+def tx_select_appointment_slot(doctor, consultations):
+    appointment_day = (datetime.now().date() + timedelta(days=7)).strftime('%Y-%m-%d')
+    booked_times = {
+        record[11][11:16]
+        for record in consultations
+        if record[3] == doctor[1]
+        and record[11].startswith(appointment_day)
+    }
+    available_slots = [
+        slot for slot in APPOINTMENT_SLOTS if slot[1] not in booked_times
+    ]
+
+    print()
+    print(f"Available consultation slots for {appointment_day}:")
+    if not available_slots:
+        print("No consultation slots are available for this doctor on that date.")
+        return None
+
+    for number, start, end in available_slots:
+        start_time = datetime.strptime(start, '%H:%M').strftime('%I:%M %p').lstrip('0')
+        end_time = datetime.strptime(end, '%H:%M').strftime('%I:%M %p').lstrip('0')
+        print(f"[{number}] {start_time} - {end_time}")
+
+    choice = get_valid_menu_choice(
+        "Select a consultation slot: ",
+        [slot[0] for slot in available_slots]
+    )
+    return next(slot for slot in available_slots if slot[0] == choice)
 
 
 def tx_create_appointment():
@@ -1302,8 +1327,12 @@ def tx_create_appointment():
     if not doctor:
         return
 
-    appointment_datetime = get_appointment_datetime(doctor[6])
     consultations = read_consultation_records()
+    appointment_slot = tx_select_appointment_slot(doctor, consultations)
+    if appointment_slot is None:
+        return
+
+    appointment_datetime = get_appointment_datetime(appointment_slot[1])
     numeric_ids = [int(record[0]) for record in consultations if record[0].isdigit()]
     consultation_id = str(max(numeric_ids, default=0) + 1)
 
@@ -1337,7 +1366,10 @@ def tx_create_appointment():
         f"{establishment_type}: {establishment[0]} ({establishment[3]})"
         if establishment else "Establishment: Not assigned"
     )
-    print("Assigned time slot:", doctor[6])
+    print(
+        "Selected time slot:",
+        f"Slot {appointment_slot[0]} ({appointment_slot[1]}-{appointment_slot[2]})"
+    )
     print("Appointment:", appointment_datetime)
     print()
 
