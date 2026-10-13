@@ -1,2 +1,0 @@
-Q001 | 2026-10-09 03:28:17 | P001 | Alex Santos | 24 | Waiting
-Q002 | 2026-10-09 03:28:25 | P003 | Taylor Cruz | 45 | Waiting
